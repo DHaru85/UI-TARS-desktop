@@ -266,11 +266,16 @@ node .\agent-tars\cli\bin\cli.js --provider openai --model <模型名> --baseURL
 
 ### 6.4 修改后进行重新编译
 
-使用该命令对 agent-tars 栈修改后的源码重新编译
+在 **`multimodal/`** 下按包构建，不要只在某个子目录盲目执行 `npx rslib build`（可能未走 workspace 依赖与 override）。
 
-```sh
-npx rslib build
+**全量（与首次一致）：**
+
+```powershell
+cd multimodal
+pnpm bootstrap
 ```
+
+**增量（改动了哪些包就 build 哪些）：** 见下文 **第 11 节** 的推荐顺序。
 
 ---
 
@@ -331,6 +336,148 @@ VLM Model Name: 与 /v1/models 返回的 id 一致
 
 ---
 
-## 10. 修订说明
+## 10. 本地定制修改与更新操作（Agent TARS 栈）
 
-本文档基于仓库 **0.3.0** 源码结构与 Windows 本地部署实践整理；发布资产与 registry 策略以 GitHub Releases 与官方文档为准。若你方已合并 `multimodal/tarko/agio` 的 Windows 构建脚本修复，重新拉取代码后 `pnpm bootstrap` 可少一步手动改 `agio/package.json`。
+本节记录本仓库相对上游 **0.3.0** 在 **Agent TARS / Tarko / agent-infra** 上的定制改动，以及 **Windows 下从改代码到重新跑 CLI** 的推荐流程。适用于你在 **路径 D**（`multimodal` 源码）上调试浏览器 Agent、MCP 与上下文过长等问题。
+
+### 10.1 背景：解决了哪些问题
+
+| 现象 | 主要原因 | 定制方向 |
+|------|----------|----------|
+| 工具调用 JSON 解析失败（`Expected property name` / LLM 400） | 模型返回的工具 `arguments` 非严格 JSON 或已是对象 | `@tarko/agent` 统一规范化并安全解析参数 |
+| 上下文暴涨、`HTML to Markdown conversion failed`（Turndown GFM） | 旧版 `toMarkdown` 失败时回退整页 HTML；DOM 模式下 MCP 的 `browser_get_markdown` 覆盖本地实现 | 安全 Markdown 转换 + DOM 策略不再注册 MCP 版 `browser_get_markdown` |
+| `@agent-tars/core` build 报 `Package subpath './dist/server.cjs' is not defined by "exports"` | 深路径 import 未在 `exports` 中声明 | 改为包主入口 `@agent-infra/mcp-server-browser` |
+| 声明文件生成失败：`McpServer` 类型不兼容 / `Unused '@ts-expect-error'` | 根目录与 `multimodal` 各有一份 `@modelcontextprotocol/sdk`；linked 包与 `@tarko/mcp-agent` 版本路径不一致 | 统一 SDK override + `as unknown as McpServer` |
+| 仍打进 npm 旧包（如 `mcp-server-browser@1.1.10`、`shared@0.0.2`） | `multimodal` 与根 `packages/agent-infra` 为双 workspace | `pnpm.overrides` + `file:` / `link:` 指向本地包 |
+
+### 10.2 涉及的主要文件（便于 diff / 合并上游）
+
+| 区域 | 路径（相对仓库根） |
+|------|-------------------|
+| 工具参数解析 | `multimodal/tarko/agent/src/utils/parse-tool-call-arguments.ts`、`tool-processor.ts`、`NativeToolCallEngine.ts` |
+| 安全 HTML→Markdown（core） | `multimodal/agent-tars/core/src/utils/safe-html-to-markdown.ts`、`content-extractor.ts` |
+| DOM 浏览器策略 | `multimodal/agent-tars/core/src/environments/local/browser/browser-control-strategies/browser-dom-strategy.ts` |
+| 本地 MCP 装配 | `multimodal/agent-tars/core/src/environments/local/index.ts` |
+| MCP Browser 服务端 | `packages/agent-infra/mcp-servers/browser/src/`（含 `typings.ts`、`utils/safe-markdown.ts`、`tools/content.ts` 等） |
+| 共享 Markdown（可选同步） | `packages/agent-infra/shared/src/browser/to-markdown.ts` |
+| Workspace 依赖 | `multimodal/package.json`（`pnpm.overrides`）、`multimodal/agent-tars/core/package.json` |
+
+### 10.3 依赖链接与 override（必做）
+
+`multimodal` 默认从 npm 拉 `@agent-infra/*`，**不会**自动使用根目录 `packages/agent-infra` 的源码。定制后需在 **`multimodal/package.json`** 中保持：
+
+```json
+"pnpm": {
+  "overrides": {
+    "@agent-infra/shared": "link:../packages/agent-infra/shared",
+    "@agent-infra/mcp-server-browser": "link:../packages/agent-infra/mcp-servers/browser",
+    "@modelcontextprotocol/sdk": "1.15.1"
+  }
+}
+```
+
+`@agent-tars/core` 的 `devDependencies` 中另有 **`file:`** 指向本地 MCP / shared（与 override 配合，保证构建期解析到 monorepo 内源码）。
+
+**每次改 override 或 `file:` 路径后：**
+
+```powershell
+cd D:\path\to\UI-TARS-desktop-0.3.0\multimodal
+$env:npm_config_registry = "https://registry.npmmirror.com"   # 可选
+pnpm install
+```
+
+若只改了 **`packages/agent-infra/**`** 且根目录也执行过 `pnpm install`，可能出现 **两套** `@modelcontextprotocol/sdk`（根 `node_modules` 与 `multimodal/node_modules`）。类型检查以 **在 `multimodal` 内 install + build** 为准。
+
+### 10.4 推荐构建顺序（增量）
+
+全量仍用 `pnpm bootstrap`（第 6.1 节）。仅更新定制相关包时，建议顺序：
+
+```powershell
+cd multimodal
+
+# 1. 若改了 packages/agent-infra/shared
+pnpm --filter @agent-infra/shared build
+
+# 2. 若改了 packages/agent-infra/mcp-servers/browser（几乎总是先于 core）
+pnpm --filter @agent-infra/mcp-server-browser build
+
+# 3. 若改了 tarko/agent 等
+pnpm --filter @tarko/agent build
+
+# 4. Agent TARS 核心
+pnpm --filter @agent-tars/core build
+
+# 5. 若使用本地 CLI 入口
+pnpm --filter @agent-tars/cli build
+```
+
+**注意：** `@agent-infra/mcp-server-browser` 未 build 时，`@agent-tars/core` 可能链接到空的或旧的 `dist/`，运行时仍会表现为 npm 旧逻辑。
+
+### 10.5 关键实现说明（运维向）
+
+1. **MCP Browser 导入**  
+   `local/index.ts` 使用 `import * as browserModule from '@agent-infra/mcp-server-browser'`，**不要**写 `@agent-infra/mcp-server-browser/dist/server.cjs`（`exports` 未暴露该子路径）。
+
+2. **In-memory MCP 与类型**  
+   `browserModule.createServer(...)` 返回值在 TypeScript 上需写成 `as unknown as McpServer`（`McpServer` 来自 `@tarko/mcp-agent`），以避免 linked 包与 `mcp-agent` 引用不同物理路径的 SDK。
+
+3. **externalBrowser**  
+   MCP `GlobalConfig.externalBrowser` 支持 `LocalBrowser | RemoteBrowser`，与 `BrowserManager.getBrowser()` 一致。
+
+4. **DOM 模式下的 `browser_get_markdown`**  
+   由 `createContentTools()` + `safeHtmlToMarkdown`（Readability 管线）提供；从 MCP 工具列表中**排除** `browser_get_markdown`，避免 npm 内置的 `page.content()` + 旧 `toMarkdown` 再次注册并覆盖。
+
+5. **构建警告 `Can't resolve 'canvas'`**  
+   来自 `jsdom` 可选依赖，在 `@agent-infra/mcp-server-browser` → `browser-context` 链路上常见，一般为 **warning**，不阻止 `dist/index.js` 产出；若仅 d.ts 阶段失败，以第 10.6 节为准排查。
+
+### 10.6 构建 / 运行验证
+
+**构建成功：**
+
+```powershell
+pnpm --filter @agent-tars/core build
+# 应无 TS2578 / TS2352 / exports 子路径错误
+```
+
+**粗略检查产物是否仍含旧 Markdown 路径（PowerShell）：**
+
+```powershell
+Select-String -Path ".\agent-tars\core\dist\index.js" -Pattern "safeHtmlToMarkdown" -SimpleMatch
+# 期望有匹配
+
+Select-String -Path ".\agent-tars\core\dist\index.js" -Pattern "browser_get_markdown" | Select-Object -First 5
+# 需结合 DOM 策略理解：名称可能出现，但不应再依赖 MCP 旧版整页 HTML 回退逻辑
+```
+
+**运行本地 CLI（与 6.2 节相同）：**
+
+```powershell
+node .\agent-tars\cli\bin\cli.js --provider openai --model <模型名> --baseURL http://127.0.0.1:8000/v1 --apiKey sk-local
+```
+
+试用时关注：工具参数是否仍报 JSON 错误、长页面是否仍瞬间撑爆上下文、Turndown GFM 是否仍刷屏。
+
+### 10.7 与本节相关的构建问题速查
+
+| 现象 | 处理 |
+|------|------|
+| `./dist/server.cjs` is not defined by exports | 改用 `@agent-infra/mcp-server-browser` 主入口 import |
+| `Unused '@ts-expect-error'` | 删除该行；主入口 import 已合法 |
+| `McpServer` may be a mistake… convert to unknown first | 使用 `as unknown as McpServer`；并执行 `pnpm install` 使 SDK override 生效 |
+| `RemoteBrowser` 不能赋给 `externalBrowser` | 拉取含 `typings.ts` 改动的代码后重新 `pnpm --filter @agent-infra/mcp-server-browser build` |
+| core build 通过但运行仍像旧版 | 确认 `multimodal` 下 `pnpm install` + override 生效；重建 mcp-browser 与 core |
+
+### 10.8 从上游合并或发版时注意
+
+- 合并 **bytedance/UI-TARS-desktop** 时，重点冲突：`multimodal/package.json` overrides、`browser-dom-strategy.ts`、`local/index.ts`、MCP `content.ts` / `safe-markdown`。
+- 若恢复使用 **纯 npm** 版 `@agent-infra/mcp-server-browser`，需自行评估是否重新暴露 `browser_get_markdown` 与上下文风险。
+- 发版前建议在干净环境：`multimodal` 内 `pnpm install` → 按 10.4 顺序 build → 跑一条浏览器抓取/markdown 任务回归。
+
+---
+
+## 11. 修订说明
+
+本文档基于仓库 **0.3.0** 源码结构与 Windows 本地部署实践整理；发布资产与 registry 策略以 GitHub Releases 与官方文档为准。
+
+- 若已合并 `multimodal/tarko/agio` 的 Windows 构建脚本修复，重新拉取后 `pnpm bootstrap` 可少一步手动改 `agio/package.json`。
+- **Agent TARS 本地定制**（工具参数、安全 Markdown、MCP 链接与构建顺序）见 **第 10 节**。

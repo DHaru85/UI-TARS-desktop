@@ -11,6 +11,7 @@ import {
   ConsoleLogger,
   MCPServerRegistry,
   AgentEventStream,
+  type McpServer,
 } from '@tarko/mcp-agent';
 import { ResourceCleaner } from '../../utils';
 import { AgentTARSOptions, BuiltInMCPServers, BuiltInMCPServerName } from '../../types';
@@ -21,8 +22,7 @@ import { WorkspacePathResolver } from '../../shared/workspace-path-resolver';
 import { AgentTARSBaseEnvironment } from '../base';
 
 // Static imports for MCP modules
-// @ts-expect-error - Default esm asset has some issues
-import * as browserModule from '@agent-infra/mcp-server-browser/dist/server.cjs';
+import * as browserModule from '@agent-infra/mcp-server-browser';
 import * as filesystemModule from '@agent-infra/mcp-server-filesystem';
 import * as commandsModule from '@agent-infra/mcp-server-commands';
 
@@ -171,7 +171,7 @@ export class AgentTARSLocalEnvironment extends AgentTARSBaseEnvironment {
         launchOptions: {
           headless: this.options.browser?.headless,
         },
-      }),
+      }) as unknown as McpServer,
       filesystem: filesystemModule.createServer({
         allowedDirectories: [this.workspace],
       }),

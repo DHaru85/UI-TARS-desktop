@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { READABILITY_SCRIPT, toMarkdown } from '@agent-infra/shared';
+import { READABILITY_SCRIPT } from '@agent-infra/shared';
+import { safeHtmlToMarkdown } from '../../../utils/safe-html-to-markdown';
 import { ConsoleLogger } from '@tarko/mcp-agent';
 import { Page } from '@agent-infra/browser';
 
@@ -89,7 +90,7 @@ export class PaginatedContentExtractor {
       }, READABILITY_SCRIPT);
 
       // Convert HTML content to markdown for better token efficiency
-      const fullMarkdown = toMarkdown(extractionResult.fullContent || '');
+      const fullMarkdown = safeHtmlToMarkdown(extractionResult.fullContent || '');
 
       // Calculate pagination information
       const totalPages = Math.ceil(fullMarkdown.length / this.pageSize);

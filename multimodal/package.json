@@ -35,6 +35,13 @@
     "node": ">=22",
     "pnpm": "9"
   },
+  "pnpm": {
+    "overrides": {
+      "@agent-infra/shared": "link:../packages/agent-infra/shared",
+      "@agent-infra/mcp-server-browser": "link:../packages/agent-infra/mcp-servers/browser",
+      "@modelcontextprotocol/sdk": "1.15.1"
+    }
+  },
   "devDependencies": {
     "pnpm-dev-kit": "0.0.5-canary-7d05b7ce-20251213170600",
     "@types/node": "22.15.30",

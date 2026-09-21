@@ -1,6 +1,22 @@
 import { z } from 'zod';
+import { looksLikeHtml, toMarkdown } from '../utils/safe-markdown.js';
 import { defineTool } from './defineTool.js';
 import { delayReject } from '../utils/utils.js';
+
+const MAX_MARKDOWN_TOOL_OUTPUT_CHARS = 120_000;
+
+function normalizeExtractedMarkdown(title: string, content: string): string {
+  const body =
+    content && looksLikeHtml(content) ? toMarkdown(content) : content || '';
+  const markdown = (title ? `${title}\n` : '') + body;
+  if (markdown.length <= MAX_MARKDOWN_TOOL_OUTPUT_CHARS) {
+    return markdown;
+  }
+  return (
+    markdown.slice(0, MAX_MARKDOWN_TOOL_OUTPUT_CHARS) +
+    '\n\n[Content truncated for tool output size limits]'
+  );
+}
 
 const getMarkdownTool = defineTool({
   name: 'browser_get_markdown',
@@ -26,8 +42,8 @@ const getMarkdownTool = defineTool({
       const { extractContent } = await import('@agent-infra/browser-context');
       const { title, content } = await extractContent(page as any);
 
-      const markdown = title + '\n' + content || '';
-      logger.info(`[browser_get_markdown]: title: ${markdown}`);
+      const markdown = normalizeExtractedMarkdown(title || '', content || '');
+      logger.info(`[browser_get_markdown]: title: ${title}`);
 
       return {
         content: [{ type: 'text', text: markdown }],

@@ -29,11 +29,12 @@ export class BrowserDOMStrategy extends AbstractBrowserControlStrategy {
       });
     }
 
+    // browser_get_markdown is provided by createContentTools() above (Readability + safeHtmlToMarkdown).
+    // Do not register the MCP version — npm MCP bundles legacy page.content + toMarkdown that returns raw HTML.
     const browserTools = [
       'browser_navigate',
       'browser_go_back',
       'browser_go_forward',
-      'browser_get_markdown',
       'browser_click',
       'browser_press_key',
       'browser_hover',

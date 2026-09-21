@@ -2,6 +2,7 @@ import {
   LaunchOptions,
   LocalBrowser,
   Page,
+  RemoteBrowser,
   RemoteBrowserOptions,
 } from '@agent-infra/browser';
 import { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js';
@@ -71,7 +72,7 @@ export interface GlobalConfig {
    * Using a external browser instance.
    * @defaultValue true
    */
-  externalBrowser?: LocalBrowser;
+  externalBrowser?: LocalBrowser | RemoteBrowser;
   /**
    * Whether to enable ad blocker
    * @defaultValue true
