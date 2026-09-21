@@ -13,3 +13,6 @@ scripts/merge-yml/*.yml
 .claude/
 .tarko
 .mcp*_token
+
+# 本地运行结果截图图片
+multimodal/images/
